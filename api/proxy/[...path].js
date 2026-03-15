@@ -4,7 +4,6 @@ export const config = {
 
 const PROXY_BASE = '/api/proxy';
 
-// Домены которые проксируем
 const PROXY_HOSTS = {
   '/html5api': 'html5.api.gamedistribution.com',
   '/gameapi':  'game.api.gamedistribution.com',
@@ -15,15 +14,78 @@ const PROXY_HOSTS = {
   '/hlapi':    'headerlift.gamedistribution.com',
 };
 
-// Домены которые блокируем (возвращаем пустой ответ)
-const BLOCKED_DOMAINS = [
-  'pub.headerlift.com',
-  'cdn.fbra.io',
-  'fbra.io',
-  'headerlift.com',
-];
-
 const DEFAULT_HOST = 'html5.gamedistribution.com';
+
+// Скрипт который патчит fetch/XHR в браузере
+const INTERCEPT_SCRIPT = `
+<script>
+(function() {
+  var BLOCKED = [
+    'pub.headerlift.com',
+    'cdn.fbra.io',
+    'fbra.io',
+    'headerlift.com',
+    'googlesyndication.com',
+    'doubleclick.net',
+    'caeea42',
+    'pagead',
+  ];
+  function isBlocked(url) {
+    if (!url) return false;
+    return BLOCKED.some(function(d) { return url.indexOf(d) !== -1; });
+  }
+  // Патчим fetch
+  var origFetch = window.fetch;
+  window.fetch = function(url, opts) {
+    if (isBlocked(url)) {
+      return Promise.resolve(new Response('{}', {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      }));
+    }
+    return origFetch.apply(this, arguments);
+  };
+  // Патчим XHR
+  var origOpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function(method, url) {
+    if (isBlocked(url)) {
+      this._blocked = true;
+    }
+    return origOpen.apply(this, arguments);
+  };
+  var origSend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.send = function() {
+    if (this._blocked) {
+      setTimeout(function() {
+        Object.defineProperty(this, 'readyState', { value: 4 });
+        Object.defineProperty(this, 'status', { value: 200 });
+        Object.defineProperty(this, 'responseText', { value: '{}' });
+        this.onreadystatechange && this.onreadystatechange();
+        this.onload && this.onload();
+      }.bind(this), 10);
+      return;
+    }
+    return origSend.apply(this, arguments);
+  };
+  // Патчим создание script тегов для заблокированных доменов
+  var origCreateElement = document.createElement.bind(document);
+  document.createElement = function(tag) {
+    var el = origCreateElement(tag);
+    if (tag.toLowerCase() === 'script') {
+      var origSetSrc = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src');
+      Object.defineProperty(el, 'src', {
+        set: function(val) {
+          if (isBlocked(val)) { return; }
+          origSetSrc.set.call(this, val);
+        },
+        get: function() { return origSetSrc.get.call(this); }
+      });
+    }
+    return el;
+  };
+})();
+</script>
+`;
 
 function getTarget(fullPath) {
   for (const [prefix, host] of Object.entries(PROXY_HOSTS)) {
@@ -32,10 +94,6 @@ function getTarget(fullPath) {
     }
   }
   return { host: DEFAULT_HOST, cleanPath: fullPath || '/' };
-}
-
-function isBlocked(url) {
-  return BLOCKED_DOMAINS.some(d => url.includes(d));
 }
 
 function rewriteBody(body, proxyBase) {
@@ -61,13 +119,6 @@ function rewriteBody(body, proxyBase) {
     ['https://headerlift.gamedistribution.com',proxyBase + '/hlapi'],
     ['http://headerlift.gamedistribution.com', proxyBase + '/hlapi'],
     ['//headerlift.gamedistribution.com',      proxyBase + '/hlapi'],
-    // Блокируемые домены перенаправляем на заглушку
-    ['https://pub.headerlift.com',             proxyBase + '/blocked'],
-    ['http://pub.headerlift.com',              proxyBase + '/blocked'],
-    ['//pub.headerlift.com',                   proxyBase + '/blocked'],
-    ['https://cdn.fbra.io',                    proxyBase + '/blocked'],
-    ['http://cdn.fbra.io',                     proxyBase + '/blocked'],
-    ['//cdn.fbra.io',                          proxyBase + '/blocked'],
     ['https://html5.gamedistribution.com',     proxyBase],
     ['http://html5.gamedistribution.com',      proxyBase],
     ['//html5.gamedistribution.com',           proxyBase],
@@ -75,6 +126,8 @@ function rewriteBody(body, proxyBase) {
   for (const [from, to] of replacements) {
     body = body.split(from).join(to);
   }
+  // Вставляем скрипт-перехватчик сразу после <head>
+  body = body.replace('<head>', '<head>' + INTERCEPT_SCRIPT);
   return body;
 }
 
@@ -83,8 +136,7 @@ export default async function handler(req) {
   const fullPath = url.pathname.replace(PROXY_BASE, '') || '/';
   const search = url.search || '';
 
-  // Заглушка для заблокированных доменов
-  if (fullPath.startsWith('/blocked') || isBlocked(url.toString())) {
+  if (fullPath.startsWith('/blocked')) {
     return new Response('{}', {
       status: 200,
       headers: {
