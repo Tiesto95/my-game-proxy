@@ -9,6 +9,9 @@ const HOSTS = {
   '/gameapi':  'game.api.gamedistribution.com',
   '/imgapi':   'img.gamedistribution.com',
   '/pmapi':    'pm.gamedistribution.com',
+  '/msert':    'msert.gamedistribution.com',
+  '/tagapi':   'tag.atom.gamedistribution.com',
+  '/hlapi':    'headerlift.gamedistribution.com',
 };
 
 const DEFAULT_HOST = 'html5.gamedistribution.com';
@@ -36,6 +39,15 @@ function rewriteBody(body, proxyBase) {
     ['https://pm.gamedistribution.com',        proxyBase + '/pmapi'],
     ['http://pm.gamedistribution.com',         proxyBase + '/pmapi'],
     ['//pm.gamedistribution.com',              proxyBase + '/pmapi'],
+    ['https://msert.gamedistribution.com',     proxyBase + '/msert'],
+    ['http://msert.gamedistribution.com',      proxyBase + '/msert'],
+    ['//msert.gamedistribution.com',           proxyBase + '/msert'],
+    ['https://tag.atom.gamedistribution.com',  proxyBase + '/tagapi'],
+    ['http://tag.atom.gamedistribution.com',   proxyBase + '/tagapi'],
+    ['//tag.atom.gamedistribution.com',        proxyBase + '/tagapi'],
+    ['https://headerlift.gamedistribution.com',proxyBase + '/hlapi'],
+    ['http://headerlift.gamedistribution.com', proxyBase + '/hlapi'],
+    ['//headerlift.gamedistribution.com',      proxyBase + '/hlapi'],
     ['https://html5.gamedistribution.com',     proxyBase],
     ['http://html5.gamedistribution.com',      proxyBase],
     ['//html5.gamedistribution.com',           proxyBase],
