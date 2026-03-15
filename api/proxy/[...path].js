@@ -4,7 +4,8 @@ export const config = {
 
 const PROXY_BASE = '/api/proxy';
 
-const HOSTS = {
+// Домены которые проксируем
+const PROXY_HOSTS = {
   '/html5api': 'html5.api.gamedistribution.com',
   '/gameapi':  'game.api.gamedistribution.com',
   '/imgapi':   'img.gamedistribution.com',
@@ -14,15 +15,27 @@ const HOSTS = {
   '/hlapi':    'headerlift.gamedistribution.com',
 };
 
+// Домены которые блокируем (возвращаем пустой ответ)
+const BLOCKED_DOMAINS = [
+  'pub.headerlift.com',
+  'cdn.fbra.io',
+  'fbra.io',
+  'headerlift.com',
+];
+
 const DEFAULT_HOST = 'html5.gamedistribution.com';
 
 function getTarget(fullPath) {
-  for (const [prefix, host] of Object.entries(HOSTS)) {
+  for (const [prefix, host] of Object.entries(PROXY_HOSTS)) {
     if (fullPath.startsWith(prefix)) {
       return { host, cleanPath: fullPath.slice(prefix.length) || '/' };
     }
   }
   return { host: DEFAULT_HOST, cleanPath: fullPath || '/' };
+}
+
+function isBlocked(url) {
+  return BLOCKED_DOMAINS.some(d => url.includes(d));
 }
 
 function rewriteBody(body, proxyBase) {
@@ -48,6 +61,13 @@ function rewriteBody(body, proxyBase) {
     ['https://headerlift.gamedistribution.com',proxyBase + '/hlapi'],
     ['http://headerlift.gamedistribution.com', proxyBase + '/hlapi'],
     ['//headerlift.gamedistribution.com',      proxyBase + '/hlapi'],
+    // Блокируемые домены перенаправляем на заглушку
+    ['https://pub.headerlift.com',             proxyBase + '/blocked'],
+    ['http://pub.headerlift.com',              proxyBase + '/blocked'],
+    ['//pub.headerlift.com',                   proxyBase + '/blocked'],
+    ['https://cdn.fbra.io',                    proxyBase + '/blocked'],
+    ['http://cdn.fbra.io',                     proxyBase + '/blocked'],
+    ['//cdn.fbra.io',                          proxyBase + '/blocked'],
     ['https://html5.gamedistribution.com',     proxyBase],
     ['http://html5.gamedistribution.com',      proxyBase],
     ['//html5.gamedistribution.com',           proxyBase],
@@ -62,6 +82,17 @@ export default async function handler(req) {
   const url = new URL(req.url);
   const fullPath = url.pathname.replace(PROXY_BASE, '') || '/';
   const search = url.search || '';
+
+  // Заглушка для заблокированных доменов
+  if (fullPath.startsWith('/blocked') || isBlocked(url.toString())) {
+    return new Response('{}', {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      },
+    });
+  }
 
   const { host, cleanPath } = getTarget(fullPath);
   const targetUrl = 'https://' + host + cleanPath + search;
